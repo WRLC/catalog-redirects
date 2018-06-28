@@ -1,4 +1,4 @@
-from flask import Flask, redirect
+from flask import Flask, redirect, request
 import json
 import requests
 
@@ -33,11 +33,19 @@ def doc():
 
 @app.route('/cr/<bibid>')
 def cr_redirect(bibid):
+    # Force the institution, or try to guess
+    if request.args.get('inst') and request.args.get('inst').upper() in views.keys():
+        inst = request.args.get('inst').upper()
+    else:
+        inst = False
     # check the index
     r = requests.get(ES + '/bib/' + bibid + '_cr')
     # if there's a record try to find it's analog in primo
-    if r.json()['found']:
-        view = views[r.json()['_source']['institution'][0]]
+    if r.json()['found'] :
+        if inst:
+            view = views[inst]
+        else:
+            view = views[r.json()['_source']['institution'][0]]
         if 'oclcnum' in r.json()['_source']:
         	return(redirect(view.format('ocolc,contains,' + r.json()['_source']['oclcnum'][0])))
         elif 'isbn' in r.json()['_source']:
@@ -48,7 +56,7 @@ def cr_redirect(bibid):
         	return(redirect(view.format('')))
     # if there's no record, not sure yet
     else:
-        return("No record foundin marchive. What shoudl we do?")
+        return("Record not found, search your <a href="">library's catalog.")
 
 if __name__ == '__main__':
     app.run(debug=True,host='0.0.0.0')
