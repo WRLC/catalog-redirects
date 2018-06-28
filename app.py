@@ -1,4 +1,4 @@
-from flask import Flask, redirect, request
+from flask import Flask, redirect, request, jsonify
 import json
 import requests
 
@@ -57,6 +57,14 @@ def cr_redirect(bibid):
     # if there's no record, not sure yet
     else:
         return("Record not found, search your <a href="">library's catalog.")
+
+@app.route('/record/<bibid>')
+def fetch_record(bibid):
+    r = requests.get(ES + '/bib/' + bibid + '_cr')
+    if r.json()['found']:
+        return(jsonify(r.json()))
+    else:
+        return("no record with id: " + bibid)
 
 if __name__ == '__main__':
     app.run(debug=True,host='0.0.0.0')
