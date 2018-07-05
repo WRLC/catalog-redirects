@@ -54,10 +54,14 @@ def cr_redirect(bibid):
         	return(redirect(view.format('title,contains,' + r.json()['_source']['title_display'][0])))
         else:
         	return(redirect(view.format('')))
-    # if there's no record, not sure yet
+    # if there's no record, send to list of primo instances
     else:
-        return("Record not found, search your <a href="">library's catalog.")
-
+        if inst != False:
+            view = views[inst]
+            return(redirect(view.format('')))
+        else:
+            return(redirect('https://redirects.wrlc.org?notfound=true'))
+        
 @app.route('/record/<bibid>')
 def fetch_record(bibid):
     r = requests.get(ES + '/bib/' + bibid + '_cr')
