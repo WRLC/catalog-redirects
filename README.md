@@ -7,3 +7,18 @@ All hard-coded for now.
 docker pull wrlc/catalog-redirects
 docker run -d -p 5000:5000 wrlc/catalog-redirects
 ```
+### With docker compose:
+create a docker-compose.yml file that looks like this:
+```
+version: "3"
+services:
+  catalog-redirects:
+    image: wrlc/catalog-redirects
+    ports:
+      - 5000:5000
+    restart: always
+```
+Run your service:
+```
+docker-compose up -d
+```
