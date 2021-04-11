@@ -4,7 +4,7 @@ import requests
 
 # settings should go in another file
 
-ES = 'http://es0.wrlc2k.wrlc.org:9200/marchive'
+ES = 'http://es1.wrlc2k.wrlc.org:9200/marchive'
 
 views = {
 	'AU' : 'https://wrlc-amu.primo.exlibrisgroup.com/discovery/search?query={}&vid=01WRLC_AMU:prod',
