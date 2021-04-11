@@ -7,32 +7,29 @@ Clone this repository.
 git clone git@github.com:WRLC/catalog-redirects.git
 ```
 
-Set up python
+Set up python virtual environment
 ```
 virtualenv -p python3.6 venv
 source venv/bin/activate
 pip install -r requirements.txt
 deactivate
+```
+
+Configure your application service. At WRLC we now run this app in a [Green Unicorn](https://docs.gunicorn.org/en/stable/index.html) Python WSGI HTTP server). The daemon is started and stoped via systemd.
+
+```
 mkdir log
 sudo cp catalog-redirects.service.example /etc/systemd/system/catalog-redirects.service
+sudo vim /etc/systemd/system/catalog-redirects.service
+sudo systemctl start catalog-redirects.service
+sudo systemctl enable catalog-redirects.service
 ```
-Configure <tt>/etc/systemd/system/catalog-redirects.service</tt> for your environment.
-
-Run this app
-```
-gunicorn -b 127.0.0.1:5001 wsgi:app
-```
-On WRLC servers we run this app in a Green Unicorn (Python WSGI HTTP Server) service.
-```
-systemctl enable catalog-redirects.service
-```
-The daemon is started and stoped via systemd.
 
 ## To be done
 Add a settings file so the Elastic Search index endpoint can be configurable.
 
 ## Deprecated Docker configuration
-All hard-coded:
+All hard-coded in Dockerfile:
 ```
 docker pull wrlc/catalog-redirects
 docker run -d -p 5000:5000 wrlc/catalog-redirects

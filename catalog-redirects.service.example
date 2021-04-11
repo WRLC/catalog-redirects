@@ -14,7 +14,10 @@ WorkingDirectory = /opt/local/catalog-redirects
 ExecStartPre = /bin/mkdir /run/catalog-redirects
 ExecStartPre = /bin/chown -R www-data:www-data /run/catalog-redirects
 Environment="PATH=/opt/local/catalog-redirects/venv/bin"
-ExecStart = /opt/local/catalog-redirects/venv/bin/gunicorn -b 127.0.0.1:5001 wsgi:app --pid /run/catalog-redirects/catalog-redirects.pid --error-logfile /opt/local/catalog-redirects/log/gunicorn.log
+# https://docs.gunicorn.org/en/stable/settings.html
+ExecStart = /opt/local/catalog-redirects/venv/bin/gunicorn -b 127.0.0.1:5001 wsgi:app \
+    --pid /run/catalog-redirects/catalog-redirects.pid \
+    --error-logfile /opt/local/catalog-redirects/log/gunicorn.log --log-level 'warning'
 ExecReload = /bin/kill -s HUP $MAINPID
 ExecStop = /bin/kill -s TERM $MAINPID
 ExecStopPost = /bin/rm -rf /run/catalog-redirects
