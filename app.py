@@ -1,27 +1,5 @@
-from flask import Flask, redirect, request, jsonify
-import requests
-
-# settings should go in another file
-
-ES = 'https://es1.wrlc2k.wrlc.org:9200/marchive'
-
-views = {
-    'AU': 'https://wrlc-amu.primo.exlibrisgroup.com/discovery/search?query={}&vid=01WRLC_AMU:prod',
-    'AULAW': 'https://wrlc-amulaw.primo.exlibrisgroup.com/discovery/search?query={}&vid=01WRLC_AMULAW:01WRLC_AMULAW',
-    'CU': 'https://wrlc-cu.primo.exlibrisgroup.com/discovery/search?query={}&vid=01WRLC_CAA:01WRLC_CAA',
-    'DC': 'https://wrlc-doc.primo.exlibrisgroup.com/discovery/search?query={}&vid=01WRLC_DOC:01WRLC_DOC_MF',
-    'GA': 'https://wrlc-gal.primo.exlibrisgroup.com/discovery/search?query={}&vid=01WRLC_GAL:01WRLC_GAL',
-    'GM': 'https://wrlc-gm.primo.exlibrisgroup.com/discovery/search?query={}&vid=01WRLC_GML:01WRLC_GM',
-    'GU': 'https://wrlc-gu.primo.exlibrisgroup.com/discovery/search?query={}&vid=01WRLC_GUNIV:01WRLC_GUNIV',
-    'GULAW': 'https://wrlc-gulaw.primo.exlibrisgroup.com/discovery/search?query={}&vid=01WRLC_GUNIVLAW:01WRLC_GUNIVLAW',
-    'GW': 'https://wrlc-gwu.primo.exlibrisgroup.com/discovery/search?query={}&sortby=rank&vid=01WRLC_GWA:live',
-    'GWMED': 'https://wrlc-gwahlth.primo.exlibrisgroup.com/discovery/search?query={}&vid=01WRLC_GWAHLTH:01WRLC_GWAHLTH',
-    'HU': 'https://wrlc-hu.primo.exlibrisgroup.com/discovery/search?query={}&vid=01WRLC_HOW:01WRLC_HOW',
-    'MU': 'https://wrlc-mar.primo.exlibrisgroup.com/discovery/search?query={}&vid=01WRLC_MAR:01WRLC_MAR',
-    'TR': 'https://wrlc-trn.primo.exlibrisgroup.com/discovery/search?query={}&vid=01WRLC_TRN:01WRLC_TRN',
-    'WR': 'https://wrlc-scf.primo.exlibrisgroup.com/discovery/search?query={'
-          '}&search_scope=DiscoveryNetwork&vid=01WRLC_SCF:01WRLC_SCF'
-}
+from flask import Flask, redirect, jsonify
+from utilities import get_record, set_instcode, views
 
 
 app = Flask(__name__)
@@ -34,41 +12,77 @@ def doc():
 
 @app.route('/cr/<bibid>')
 def cr_redirect(bibid):
-    # Force the institution, or try to guess
-    if request.args.get('inst') and request.args.get('inst').upper() in views.keys():
-        inst = request.args.get('inst').upper()
-    else:
-        inst = False
-    # check the index
-    r = requests.get(ES + '/bib/' + bibid + '_cr')
+
+    # query the database for the parameter (bibid)
+    query = "SELECT t.TITLE_BRIEF, t.ISBN, t.ISSN, l.LIBRARY_NAME " \
+            "FROM BIB_TEXT t, BIB_MASTER m, LIBRARY l " \
+            "WHERE t.BIB_ID = m.BIB_ID AND " \
+            "m.LIBRARY_ID = l.LIBRARY_ID AND " \
+            "t.BIB_ID = %s"
+
+    r = get_record(bibid, query, False)  # fetch the results
+
     # if there's a record try to find it's analog in primo
-    if r.json()['found']:
-        if inst:
-            view = views[inst]
-        else:
-            view = views[r.json()['_source']['institution'][0]]
-        if 'oclcnum' in r.json()['_source']:
-            return redirect(view.format('ocolc,contains,' + r.json()['_source']['oclcnum'][0]))
-        elif 'isbn' in r.json()['_source']:
-            return redirect(view.format('isbn,contains,' + r.json()['_source']['isbn'][0]))
-        elif 'title_display' in r.json()['_source']:
-            return redirect(view.format('title,contains,' + r.json()['_source']['title_display'][0]))
-        else:
-            return redirect(view.format(''))
+    if r is not None:
+        isbn = r['ISBN']  # isbn
+        issn = r['ISSN']  # issn
+        title = r['TITLE_BRIEF']  # title
+        instcode = set_instcode(r['LIBRARY_NAME'])  # library
+        try:
+            view = views[instcode]  # set view based on institution code from the database
+        except KeyError:
+            view = views['WR']  # default to WR if not in list
+
+        # get the oclcnums
+        headings_query = "SELECT DISPLAY_HEADING, NORMAL_HEADING FROM BIB_INDEX " \
+                         "WHERE BIB_ID = %s AND INDEX_CODE = '035A'"
+
+        headings = get_record(bibid, headings_query)  # fetch the 35a headings for the bib id
+        oclcnums = []  # empty list of oclcnums
+
+        if len(headings) > 0:  # if there are headings
+            # loop through the headings
+            for heading in headings:
+                if heading['DISPLAY_HEADING'].startswith('(OCoLC)'):  # if the display heading starts with (OCoLC)
+                    oclcnums.append(heading['NORMAL_HEADING'].replace('(OCoLC)', ''))  # add std heading to the list
+
+            # if there are oclcnums, check for a usable one
+            if len(oclcnums) > 0:
+                for oclcnum in oclcnums:  # iterate through the oclcnums
+                    if oclcnum.strip() != '' and oclcnum.isdigit():  # if the oclcnum is not empty and is all digits
+                        return redirect(view.format('ocolc,contains,' + oclcnum))
+
+        # if there's an isbn, use that
+        if isbn and isbn != '':
+            return redirect(view.format('isbn,contains,' + isbn))
+
+        # if there's an issn, use that
+        if issn and issn != '':
+            return redirect(view.format('issn,contains,' + issn))
+
+        # if there's a title, use that
+        if title and title.strip() != '':
+            return redirect(view.format('title,contains,' + title))
+
+        # if there's nothing, send an empty query
+        return redirect(view.format(''))
+
     # if there's no record, send to list of primo instances
     else:
-        if inst:
-            view = views[inst]
-            return redirect(view.format(''))
-        else:
-            return redirect('https://redirects.wrlc.org?notfound=true')
+        return redirect('https://redirects.wrlc.org?notfound=true')
         
 
 @app.route('/record/<bibid>')
 def fetch_record(bibid):
-    r = requests.get(ES + '/bib/' + bibid + '_cr')
-    if r.json()['found']:
-        return jsonify(r.json())
+    # query the database for the parameter (bibid)
+    query = "SELECT t.*, l.LIBRARY_NAME " \
+            "FROM BIB_TEXT t, BIB_MASTER m, LIBRARY l " \
+            "WHERE t.BIB_ID = m.BIB_ID AND " \
+            "m.LIBRARY_ID = l.LIBRARY_ID AND " \
+            "t.BIB_ID = %s"
+    r = get_record(bibid, query)
+    if len(r) > 0:
+        return jsonify(r)
     else:
         return "no record with id: " + bibid
 
