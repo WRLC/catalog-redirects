@@ -1,5 +1,6 @@
 import mysql.connector
 import settings
+from flask import request
 
 # dictionary of IZ views
 views = {
@@ -112,3 +113,13 @@ def set_redirect(field, label, view):
         return view.format(label + ',contains,' + field)
     else:
         return
+
+
+def guess_institution():
+    # Force the institution, or try to guess
+    if request.args.get('inst') and request.args.get('inst').upper() in views.keys():
+        inst = request.args.get('inst').upper()
+    else:
+        inst = False
+
+    return inst
