@@ -1,5 +1,6 @@
 from flask import Flask, redirect, jsonify
-from utilities import get_record, set_instcode, views
+from utilities import get_record, get_record_view, get_headings, set_redirect
+from models import set_record, set_head
 
 
 app = Flask(__name__)
@@ -12,57 +13,37 @@ def doc():
 
 @app.route('/cr/<bibid>')
 def cr_redirect(bibid):
-
-    # query the database for the parameter (bibid)
-    query = "SELECT t.TITLE_BRIEF, t.ISBN, t.ISSN, l.LIBRARY_NAME " \
-            "FROM BIB_TEXT t, BIB_MASTER m, LIBRARY l " \
-            "WHERE t.BIB_ID = m.BIB_ID AND " \
-            "m.LIBRARY_ID = l.LIBRARY_ID AND " \
-            "t.BIB_ID = %s"
-
-    r = get_record(bibid, query, False)  # fetch the results
+    r = get_record(bibid)  # fetch the record from the database
 
     # if there's a record try to find it's analog in primo
     if r is not None:
-        isbn = r['ISBN']  # isbn
-        issn = r['ISSN']  # issn
-        title = r['TITLE_BRIEF']  # title
-        instcode = set_instcode(r['LIBRARY_NAME'])  # library
-        try:
-            view = views[instcode]  # set view based on institution code from the database
-        except KeyError:
-            view = views['WR']  # default to WR if not in list
-
-        # get the oclcnums
-        headings_query = "SELECT DISPLAY_HEADING, NORMAL_HEADING FROM BIB_INDEX " \
-                         "WHERE BIB_ID = %s AND INDEX_CODE = '035A'"
-
-        headings = get_record(bibid, headings_query)  # fetch the 35a headings for the bib id
-        oclcnums = []  # empty list of oclcnums
+        record = set_record(r, bibid)  # create a record object
+        view = record.set_view()  # set the view based on the institution code
+        headings = get_headings(bibid)  # fetch any 35a headings for the bib id
 
         if len(headings) > 0:  # if there are headings
             # loop through the headings
             for heading in headings:
-                if heading['DISPLAY_HEADING'].startswith('(OCoLC)'):  # if the display heading starts with (OCoLC)
-                    oclcnums.append(heading['NORMAL_HEADING'].replace('(OCoLC)', ''))  # add std heading to the list
-
-            # if there are oclcnums, check for a usable one
-            if len(oclcnums) > 0:
-                for oclcnum in oclcnums:  # iterate through the oclcnums
-                    if oclcnum.strip() != '' and oclcnum.isdigit():  # if the oclcnum is not empty and is all digits
-                        return redirect(view.format('ocolc,contains,' + oclcnum))
+                # create a heading object
+                head = set_head(heading, bibid)  # create a heading object
+                oclcnum = head.set_oclcnum()  # set the oclcnum from the heading
+                if oclcnum.strip() != '' and oclcnum.isdigit():  # if the oclcnum is not empty and is all digits
+                    return redirect(view.format('ocolc,contains,' + oclcnum))
 
         # if there's an isbn, use that
-        if isbn and isbn != '':
-            return redirect(view.format('isbn,contains,' + isbn))
+        isbn_response = set_redirect(record.isbn, 'isbn', view)
+        if isbn_response is not None:
+            return redirect(isbn_response)
 
         # if there's an issn, use that
-        if issn and issn != '':
-            return redirect(view.format('issn,contains,' + issn))
+        issn_response = set_redirect(record.issn, 'issn', view)
+        if issn_response is not None:
+            return redirect(issn_response)
 
         # if there's a title, use that
-        if title and title.strip() != '':
-            return redirect(view.format('title,contains,' + title))
+        title_response = set_redirect(record.title, 'title', view)
+        if title_response is not None:
+            return redirect(title_response)
 
         # if there's nothing, send an empty query
         return redirect(view.format(''))
@@ -75,13 +56,9 @@ def cr_redirect(bibid):
 @app.route('/record/<bibid>')
 def fetch_record(bibid):
     # query the database for the parameter (bibid)
-    query = "SELECT t.*, l.LIBRARY_NAME " \
-            "FROM BIB_TEXT t, BIB_MASTER m, LIBRARY l " \
-            "WHERE t.BIB_ID = m.BIB_ID AND " \
-            "m.LIBRARY_ID = l.LIBRARY_ID AND " \
-            "t.BIB_ID = %s"
-    r = get_record(bibid, query)
-    if len(r) > 0:
+    r = get_record_view(bibid)
+
+    if r is not None:
         return jsonify(r)
     else:
         return "no record with id: " + bibid

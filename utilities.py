@@ -44,7 +44,7 @@ wr = {
 }
 
 
-def get_record(bibid, query, queryall=True):
+def db_query(query, params, queryall=True):
     # database connection settings from settings.py
     cxn = mysql.connector.connect(
         user=settings.db['user'],
@@ -54,7 +54,6 @@ def get_record(bibid, query, queryall=True):
     )
     cursor = cxn.cursor(dictionary=True)  # create a cursor object
 
-    params = (bibid,)  # set the bibid as the parameter
     cursor.execute(query, params)  # execute the query
     if queryall is True:
         r = cursor.fetchall()
@@ -63,6 +62,37 @@ def get_record(bibid, query, queryall=True):
 
     cursor.close()  # close the cursor
     cxn.close()  # close the connection
+    return r
+
+
+def get_record(bibid):
+    query = "SELECT t.TITLE_BRIEF, t.ISBN, t.ISSN, l.LIBRARY_NAME " \
+            "FROM BIB_TEXT t, BIB_MASTER m, LIBRARY l " \
+            "WHERE t.BIB_ID = m.BIB_ID AND " \
+            "m.LIBRARY_ID = l.LIBRARY_ID AND " \
+            "t.BIB_ID = %s"
+    params = (bibid,)
+    r = db_query(query, params, False)
+    return r
+
+
+def get_record_view(bibid):
+    query = "SELECT t.*, l.LIBRARY_NAME " \
+            "FROM BIB_TEXT t, BIB_MASTER m, LIBRARY l " \
+            "WHERE t.BIB_ID = m.BIB_ID AND " \
+            "m.LIBRARY_ID = l.LIBRARY_ID AND " \
+            "t.BIB_ID = %s"
+    params = (bibid,)
+    r = db_query(query, params, False)
+    return r
+
+
+def get_headings(bibid):
+    # get the oclcnums
+    headings_query = "SELECT DISPLAY_HEADING, NORMAL_HEADING FROM BIB_INDEX " \
+                     "WHERE BIB_ID = %s AND INDEX_CODE = '035A'"
+    params = (bibid,)
+    r = db_query(headings_query, params)
     return r
 
 
@@ -75,3 +105,10 @@ def set_instcode(instcode):
         return 'WR'
     else:
         return instcode
+
+
+def set_redirect(field, label, view):
+    if field and field != '':
+        return view.format(label + ',contains,' + field)
+    else:
+        return
