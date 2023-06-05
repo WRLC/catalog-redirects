@@ -1,75 +1,61 @@
-from flask import Flask, redirect, request, jsonify
-import json
-import requests
-
-# settings should go in another file
-
-ES = 'http://es1.wrlc2k.wrlc.org:9200/marchive'
-
-views = {
-	'AU' : 'https://wrlc-amu.primo.exlibrisgroup.com/discovery/search?query={}&vid=01WRLC_AMU:prod',
-	'AULAW' : 'https://wrlc-amulaw.primo.exlibrisgroup.com/discovery/search?query={}&vid=01WRLC_AMULAW:01WRLC_AMULAW',
-	'CU' : 'https://wrlc-cu.primo.exlibrisgroup.com/discovery/search?query={}&vid=01WRLC_CAA:01WRLC_CAA',
-	'DC' : 'https://wrlc-doc.primo.exlibrisgroup.com/discovery/search?query={}&vid=01WRLC_DOC:01WRLC_DOC_MF',
-	'GA' : 'https://wrlc-gal.primo.exlibrisgroup.com/discovery/search?query={}&vid=01WRLC_GAL:01WRLC_GAL',
-	'GM' : 'https://wrlc-gm.primo.exlibrisgroup.com/discovery/search?query={}&vid=01WRLC_GML:01WRLC_GM',
-	'GU' : 'https://wrlc-gu.primo.exlibrisgroup.com/discovery/search?query={}&vid=01WRLC_GUNIV:01WRLC_GUNIV',
-	'GULAW' : 'https://wrlc-gulaw.primo.exlibrisgroup.com/discovery/search?query={}&vid=01WRLC_GUNIVLAW:01WRLC_GUNIVLAW',
-	'GW' : 'https://wrlc-gwu.primo.exlibrisgroup.com/discovery/search?query={}&sortby=rank&vid=01WRLC_GWA:live',
-	'GWMED' : 'https://wrlc-gwahlth.primo.exlibrisgroup.com/discovery/search?query={}&vid=01WRLC_GWAHLTH:01WRLC_GWAHLTH',
-	'HU' : 'https://wrlc-hu.primo.exlibrisgroup.com/discovery/search?query={}&vid=01WRLC_HOW:01WRLC_HOW',
-	'MU' : 'https://wrlc-mar.primo.exlibrisgroup.com/discovery/search?query={}&vid=01WRLC_MAR:01WRLC_MAR',
-	'TR' : 'https://wrlc-trn.primo.exlibrisgroup.com/discovery/search?query={}&vid=01WRLC_TRN:01WRLC_TRN',
-	'WR' : 'https://wrlc-scf.primo.exlibrisgroup.com/discovery/search?query={}&search_scope=DiscoveryNetwork&vid=01WRLC_SCF:01WRLC_SCF'
-
-}
-
+from flask import Flask, redirect, jsonify
+from utilities import get_record, get_record_view, get_headings, set_redirect, guess_institution
+from models import set_record, set_head
 
 app = Flask(__name__)
 
+
 @app.route('/')
 def doc():
-    return('legacy catalog redirect service')
+    return 'legacy catalog redirect service'
+
 
 @app.route('/cr/<bibid>')
 def cr_redirect(bibid):
-    # Force the institution, or try to guess
-    if request.args.get('inst') and request.args.get('inst').upper() in views.keys():
-        inst = request.args.get('inst').upper()
-    else:
-        inst = False
-    # check the index
-    r = requests.get(ES + '/bib/' + bibid + '_cr')
-    # if there's a record try to find it's analog in primo
-    if r.json()['found'] :
-        if inst:
-            view = views[inst]
-        else:
-            view = views[r.json()['_source']['institution'][0]]
-        if 'oclcnum' in r.json()['_source']:
-        	return(redirect(view.format('ocolc,contains,' + r.json()['_source']['oclcnum'][0])))
-        elif 'isbn' in r.json()['_source']:
-        	return(redirect(view.format('isbn,contains,' + r.json()['_source']['isbn'][0])))
-        elif 'title_display' in r.json()['_source']:
-        	return(redirect(view.format('title,contains,' + r.json()['_source']['title_display'][0])))
-        else:
-        	return(redirect(view.format('')))
-    # if there's no record, send to list of primo instances
-    else:
-        if inst != False:
-            view = views[inst]
-            return(redirect(view.format('')))
-        else:
-            return(redirect('https://redirects.wrlc.org?notfound=true'))
+    inst = guess_institution()  # Check for an institution code in the request
+    r = get_record(bibid)  # fetch the record from the database
+
+    if r is not None:  # if there's a record try to find it's analog in primo
+        record = set_record(r, bibid, inst)  # create a record object
+        view = record.set_view()  # set the view based on the institution code
+        headings = get_headings(bibid)  # fetch any 35a headings for the bib id
+
+        if len(headings) > 0:  # if there are headings
+            for heading in headings:  # loop through the headings
+                head = set_head(heading, bibid)  # create a heading object
+                oclcnum = head.set_oclcnum()  # check if heading is an oclcnum
+                if oclcnum is not None and oclcnum.strip() != '' and oclcnum.isdigit():  # if there is an oclcnum...
+                    return redirect(view.format('ocolc,contains,' + oclcnum))  # ...send to primo with oclcnum
+
+        isbn_response = set_redirect(record.isbn, 'isbn', view)  # Check for an isbn
+        if isbn_response is not None:  # if there's an isbn...
+            return redirect(isbn_response)  # ...send to primo with isbn
+
+        issn_response = set_redirect(record.issn, 'issn', view)  # if there's an issn, use that
+        if issn_response is not None:
+            return redirect(issn_response)
+
+        title_response = set_redirect(record.title, 'title', view)  # if there's a title, use that
+        if title_response is not None:
+            return redirect(title_response)
+
+        return redirect(view.format(''))  # if there's nothing, send an empty query
+
+    else:  # if there's no record
+        return redirect('https://redirects.wrlc.org?notfound=true')  # send to list of primo instances
         
+
 @app.route('/record/<bibid>')
 def fetch_record(bibid):
-    r = requests.get(ES + '/bib/' + bibid + '_cr')
-    if r.json()['found']:
-        return(jsonify(r.json()))
+    # query the database for the parameter (bibid)
+    r = get_record_view(bibid)
+
+    if r is not None:
+        return jsonify(r)
     else:
-        return("no record with id: " + bibid)
+        return "no record with id: " + bibid
+
 
 if __name__ == '__main__':
-    app.run(debug=True,host='0.0.0.0')
+    app.run(debug=True, host='0.0.0.0')
     
